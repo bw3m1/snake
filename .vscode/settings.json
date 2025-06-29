@@ -4,8 +4,10 @@
     "brect",
     "bsurf",
     "collidepoint",
+    "KEYUP",
     "mousdown",
     "MOUSEBUTTONUP",
-    "quordenints"
+    "quordenints",
+    "SRCALPHA"
   ]
 }

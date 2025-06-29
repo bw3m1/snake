@@ -31,7 +31,9 @@ except ImportError:
 
 pg.init()
 
-cell_side_length = gcd(pg.display.Info().current_w // 2, pg.display.Info().current_h // 2)
+cell_side_length = gcd(
+    pg.display.Info().current_w // 2, pg.display.Info().current_h // 2
+)
 
 scale = [
     floor(pg.display.Info().current_w / cell_side_length) * cell_side_length,
@@ -43,7 +45,7 @@ pg.display.set_caption("Snake Game")
 FPS = 128 * 2  # Rendering FPS
 clock = pg.time.Clock()
 
-MOVE_DELAY = 150 / 2  # ms between moves
+MOVE_DELAY = 150 / 1.614  # ms between moves
 last_move_time = 0
 
 bg_color = "#1e1e1e"
@@ -57,7 +59,14 @@ play_again_color_base = "#1e1e1e"
 play_again_color_hover = "#222222"
 play_again_color_hold = "#333333"
 
-apple_pos = [randint(0, scale[0] // cell_side_length) * cell_side_length, randint(0, scale[1] // cell_side_length) * cell_side_length]
+paused_rect_color = (66, 66, 71, 128)
+paused_rect_color_border = (66, 66, 71, 255)
+paused_text_color = (66 * 1.614, 66 * 1.614, 71 * 1.614, 255)
+
+apple_pos = [
+    randint(0, scale[0] // cell_side_length) * cell_side_length,
+    randint(0, scale[1] // cell_side_length) * cell_side_length,
+]
 head_pos = [0, 0]
 player_tail_quordenints = [[0, 0]]
 
@@ -65,6 +74,7 @@ last_direction = [0, 0]  # Current direction
 direction_queue = []  # Queue of upcoming directions
 move_processed = True  # Lock direction change after move until next tick
 
+paused = False
 game_over = False
 active = True
 
@@ -142,16 +152,21 @@ while active:
         if event.type == pg.QUIT:
             active = False
         elif event.type == pg.KEYDOWN:
-            if event.key in (pg.K_LEFT, pg.K_a, pg.K_j):
-                enqueue_direction(-1, 0)
-            elif event.key in (pg.K_RIGHT, pg.K_d, pg.K_l):
-                enqueue_direction(1, 0)
-            elif event.key in (pg.K_DOWN, pg.K_s, pg.K_k):
-                enqueue_direction(1, 1)
-            elif event.key in (pg.K_UP, pg.K_w, pg.K_i):
-                enqueue_direction(-1, 1)
+            if event.key == pg.K_q:
+                active = False
+            if not paused:
+                if event.key in (pg.K_LEFT, pg.K_a, pg.K_j):
+                    enqueue_direction(-1, 0)
+                elif event.key in (pg.K_RIGHT, pg.K_d, pg.K_l):
+                    enqueue_direction(1, 0)
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_k):
+                    enqueue_direction(1, 1)
+                elif event.key in (pg.K_UP, pg.K_w, pg.K_i):
+                    enqueue_direction(-1, 1)
+            if event.key == pg.K_SPACE:
+                paused = not paused
 
-    if not game_over and (current_time - last_move_time) > MOVE_DELAY:
+    if not game_over and (current_time - last_move_time) > MOVE_DELAY and not paused:
         move_snake()
         last_move_time = current_time
 
@@ -172,7 +187,28 @@ while active:
         )
         pg.draw.rect(surface, player_head_color, head_rect)
 
-    else:
+    if paused and not game_over:
+        paused_rect = pg.Rect(scale[0] / 3, scale[1] / 2.5, scale[0] / 3, scale[1] / 5)
+
+        # --- Draw semi-transparent box ---
+        temp_surface = pg.Surface((paused_rect.width, paused_rect.height), pg.SRCALPHA)
+        temp_surface.fill(paused_rect_color)  # RGBA tuple like (51, 51, 56, 128)
+        surface.blit(temp_surface, paused_rect.topleft)
+
+        # --- Draw border ---
+        pg.draw.rect(
+            surface, paused_rect_color_border, paused_rect, 2
+        )  # 2-pixel border
+
+        # --- Draw centered text ---
+        font = pg.font.SysFont(
+            None, int(paused_rect.height / 3)
+        )  # adjust font size if needed
+        text_surface = font.render("PAUSED", True, paused_text_color)
+        text_rect = text_surface.get_rect(center=paused_rect.center)
+        surface.blit(text_surface, text_rect)
+
+    elif game_over:
         game_over_font_header = pg.font.SysFont("Arial", 64)
         play_again_font = pg.font.SysFont("Arial", 32)
 
@@ -215,8 +251,8 @@ while active:
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 active = False
-            elif event.type == pg.MOUSEBUTTONUP and event.button == 1:
-                if hovering:
+            elif (event.type == pg.MOUSEBUTTONUP and event.button == 1) or (event.type == pg.KEYUP):
+                if hovering or (event.type == pg.KEYUP):
                     head_pos = [0, 0]
                     player_tail_quordenints = [[0, 0]]
                     apple_pos = [
