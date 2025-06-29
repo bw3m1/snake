@@ -4,11 +4,9 @@ import subprocess
 try:
     import pygame as pg
 except ImportError:
-    # Install pygame automatically if missing
     install_flags = []
     if sys.platform == "win32":
         install_flags = [subprocess.CREATE_NO_WINDOW]
-
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "pygame"],
         creationflags=(install_flags[0] if install_flags else 0),
@@ -18,25 +16,35 @@ except ImportError:
 try:
     from numpy.random import randint
     from numpy import floor
+    from numpy import gcd
 except ImportError:
-    # Install pygame automatically if missing
     install_flags = []
     if sys.platform == "win32":
         install_flags = [subprocess.CREATE_NO_WINDOW]
-
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "numpy"],
         creationflags=(install_flags[0] if install_flags else 0),
     )
     from numpy.random import randint
     from numpy import floor
+    from numpy import gcd
 
+pg.init()
 
-pg.init()  # initialise pygame
+cell_side_length = gcd(pg.display.Info().current_w // 2, pg.display.Info().current_h // 2)
 
-scale = [floor(pg.display.Info().current_w / 50)*50, floor(pg.display.Info().current_h / 50)*50]
+scale = [
+    floor(pg.display.Info().current_w / cell_side_length) * cell_side_length,
+    floor(pg.display.Info().current_h / cell_side_length) * cell_side_length,
+]
 surface = pg.display.set_mode(scale)
 pg.display.set_caption("Snake Game")
+
+FPS = 128 * 2  # Rendering FPS
+clock = pg.time.Clock()
+
+MOVE_DELAY = 150 / 2  # ms between moves
+last_move_time = 0
 
 bg_color = "#1e1e1e"
 player_head_color = "#00ff00"
@@ -49,114 +57,131 @@ play_again_color_base = "#1e1e1e"
 play_again_color_hover = "#222222"
 play_again_color_hold = "#333333"
 
-apple_pos = [randint(0, scale[0] / 50) * 50, randint(0, scale[1] / 50) * 50]
+apple_pos = [randint(0, scale[0] // cell_side_length) * cell_side_length, randint(0, scale[1] // cell_side_length) * cell_side_length]
 head_pos = [0, 0]
-cell_side_length = 50
 player_tail_quordenints = [[0, 0]]
+
+last_direction = [0, 0]  # Current direction
+direction_queue = []  # Queue of upcoming directions
+move_processed = True  # Lock direction change after move until next tick
 
 game_over = False
 active = True
 
 
-def handelInput(sign, index):
-    """
-    Arguments:
-        sign (_string_): _in the sign, which tells it to ether add ("+") or subtract ("-") cell_side_length_
-        index (_integer_): _tells it wether its operating on the X (0) or Y (1) quordenints_
-    """
+def valid_direction_change(new_dir):
+    if len(player_tail_quordenints) <= 1:
+        return True
+    return new_dir != [-last_direction[0], -last_direction[1]]
 
-    global apple_pos
-    global game_over
 
-    # update player head
-    head_pos[index] = eval(f"{head_pos[index] + sign*cell_side_length}")
-    head_pos[index] %= scale[index]
+def enqueue_direction(sign, index):
+    global direction_queue, last_direction, move_processed
 
-    # update player tail
+    new_dir = [0, 0]
+    new_dir[index] = sign
+
+    last_queued = direction_queue[-1] if direction_queue else last_direction
+
+    if len(player_tail_quordenints) > 1 and new_dir == [
+        -last_queued[0],
+        -last_queued[1],
+    ]:
+        return
+
+    # Immediate update if possible
+    if move_processed and not direction_queue:
+        if valid_direction_change(new_dir):
+            last_direction = new_dir
+            move_processed = False
+            return
+
+    direction_queue.append(new_dir)
+
+
+def move_snake():
+    global apple_pos, game_over, last_direction, move_processed
+
+    if direction_queue:
+        last_direction = direction_queue.pop(0)
+
+    if last_direction == [0, 0]:
+        return
+
+    new_head = [
+        (head_pos[0] + last_direction[0] * cell_side_length) % scale[0],
+        (head_pos[1] + last_direction[1] * cell_side_length) % scale[1],
+    ]
+
+    if new_head in player_tail_quordenints[:-1]:
+        game_over = True
+        return
+
+    head_pos[0], head_pos[1] = new_head
+
     if head_pos != apple_pos:
         player_tail_quordenints.pop(0)
     else:
         bad_apple = True
         while bad_apple:
             apple_pos = [
-                randint(0, scale[0] // 50) * 50,
-                randint(0, scale[1] // 50) * 50,
+                randint(0, scale[0] // cell_side_length) * cell_side_length,
+                randint(0, scale[1] // cell_side_length) * cell_side_length,
             ]
-            bad_apple = False
-            for location in player_tail_quordenints:
-                if location == apple_pos:
-                    bad_apple = True
-                    break
-
-    # end the game if the head is on the tail
-    for i, tail_segment in enumerate(player_tail_quordenints):
-        if head_pos == tail_segment:
-            if i == 0:
-                continue  # skip checking against the head itself
-            else:
-                game_over = True
-                break
+            bad_apple = apple_pos in player_tail_quordenints
 
     player_tail_quordenints.append(list(head_pos))
 
-while active:
+    move_processed = True
 
-    # event muniment
+
+while active:
+    current_time = pg.time.get_ticks()
+
     for event in pg.event.get():
         if event.type == pg.QUIT:
             active = False
         elif event.type == pg.KEYDOWN:
+            if event.key in (pg.K_LEFT, pg.K_a, pg.K_j):
+                enqueue_direction(-1, 0)
+            elif event.key in (pg.K_RIGHT, pg.K_d, pg.K_l):
+                enqueue_direction(1, 0)
+            elif event.key in (pg.K_DOWN, pg.K_s, pg.K_k):
+                enqueue_direction(1, 1)
+            elif event.key in (pg.K_UP, pg.K_w, pg.K_i):
+                enqueue_direction(-1, 1)
 
-            if event.key == pg.K_LEFT or event.key == pg.K_a or event.key == pg.K_j:
-                handelInput(-1, 0)
-
-            elif event.key == pg.K_RIGHT or event.key == pg.K_d or event.key == pg.K_l:
-                handelInput(1, 0)
-
-            elif event.key == pg.K_DOWN or event.key == pg.K_s or event.key == pg.K_k:
-                handelInput(1, 1)
-
-            elif event.key == pg.K_UP or event.key == pg.K_w or event.key == pg.K_i:
-                handelInput(-1, 1)
-
-    # rendering stuff
+    if not game_over and (current_time - last_move_time) > MOVE_DELAY:
+        move_snake()
+        last_move_time = current_time
 
     surface.fill(bg_color)
 
     if not game_over:
-
-        # draw players tail
         for pixel in player_tail_quordenints:
-            current_tail_pixel = pg.Rect(
-                pixel[0], pixel[1], cell_side_length, cell_side_length
-            )
-            pg.draw.rect(surface, player_tail_color, current_tail_pixel)
+            rect = pg.Rect(pixel[0], pixel[1], cell_side_length, cell_side_length)
+            pg.draw.rect(surface, player_tail_color, rect)
 
-        # draw apple
-        player_head = pg.Rect(
+        apple_rect = pg.Rect(
             apple_pos[0], apple_pos[1], cell_side_length, cell_side_length
         )
-        pg.draw.rect(surface, apple_color, player_head)
+        pg.draw.rect(surface, apple_color, apple_rect)
 
-        # draw players head
-        player_head = pg.Rect(
+        head_rect = pg.Rect(
             head_pos[0], head_pos[1], cell_side_length, cell_side_length
         )
-        pg.draw.rect(surface, player_head_color, player_head)
+        pg.draw.rect(surface, player_head_color, head_rect)
 
-    elif game_over:
-        # Fonts
+    else:
         game_over_font_header = pg.font.SysFont("Arial", 64)
         play_again_font = pg.font.SysFont("Arial", 32)
 
-        # Game Over Text
         text_surface = game_over_font_header.render(
             "Game Over!", True, game_over_header_color
         )
         text_rect = text_surface.get_rect(center=(scale[0] // 2, scale[1] // 2 - 64))
         surface.blit(text_surface, text_rect)
 
-        # Button Geometry
         button_text = "Play Again"
         button_surface = play_again_font.render(
             button_text, True, play_again_text_color
@@ -164,6 +189,7 @@ while active:
         button_rect = button_surface.get_rect(
             center=(scale[0] // 2, scale[1] // 2 + 32)
         )
+
         padding = 20
         bg_rect = pg.Rect(
             button_rect.left - padding // 2,
@@ -172,41 +198,38 @@ while active:
             button_rect.height + padding,
         )
 
-        # Mouse interaction
         mouse_pos = pg.mouse.get_pos()
         mouse_pressed = pg.mouse.get_pressed()
-
         hovering = bg_rect.collidepoint(mouse_pos)
 
-        # Button State Colors
         if hovering:
-            if mouse_pressed[0]:  # Mouse button down
-                color = play_again_color_hold
-            else:
-                color = play_again_color_hover
+            color = (
+                play_again_color_hold if mouse_pressed[0] else play_again_color_hover
+            )
         else:
             color = play_again_color_base
 
-        # Draw the button
         pg.draw.rect(surface, color, bg_rect, border_radius=8)
         surface.blit(button_surface, button_rect)
 
-        # Detect mouse release (click)
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 active = False
             elif event.type == pg.MOUSEBUTTONUP and event.button == 1:
                 if hovering:
-                    # RESET GAME STATE
                     head_pos = [0, 0]
                     player_tail_quordenints = [[0, 0]]
                     apple_pos = [
-                        randint(0, scale[0] // 50) * 50,
-                        randint(0, scale[1] // 50) * 50,
+                        randint(0, scale[0] // cell_side_length) * cell_side_length,
+                        randint(0, scale[1] // cell_side_length) * cell_side_length,
                     ]
                     game_over = False
+                    last_direction = [0, 0]
+                    direction_queue = []
+                    last_move_time = pg.time.get_ticks()
+                    move_processed = True
 
-    # flip display
     pg.display.flip()
+    clock.tick(FPS)
 
 pg.quit()

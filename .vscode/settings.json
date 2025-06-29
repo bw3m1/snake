@@ -1,6 +1,8 @@
 {
   "cSpell.words": [
     "blit",
+    "brect",
+    "bsurf",
     "collidepoint",
     "mousdown",
     "MOUSEBUTTONUP",
